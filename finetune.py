@@ -49,6 +49,7 @@ def main(args):
     accelerator.print(f"Total GPUS: {accelerator.num_processes}")
 
     if args.architecture == "llama":
+        # NOTE: 注意：用的是本地的scaled_rope/modeling_llama_yarn.py， 而不是huggingface的transformers
         from scaled_rope.modeling_llama_yarn import LlamaForCausalLM
         from scaled_rope.configuration_llama import LlamaConfig
         config_cls = LlamaConfig
@@ -63,16 +64,18 @@ def main(args):
 
     config = config_cls.from_pretrained(args.model)
     config.rope_scaling = {
-        "type": args.scaling_type,
-        "factor": args.scaling_factor,
+        "type": args.scaling_type, # linear, ntk, yarn
+        "factor": args.scaling_factor,  # 16 or 32
         "original_max_position_embeddings": original_max_position_embeddings
     }
-    config.rope_theta = args.rope_theta
+    # 在原始模型max_position_embeddings基础上乘以scaling_factor
+    config.rope_theta = args.rope_theta # 10000
     config.max_position_embeddings = int(args.scaling_factor * original_max_position_embeddings) \
         if not args.max_position_embeddings else args.max_position_embeddings
 
     sliding_window_attention_schedule = [int(x) for x in args.sliding_window_attention_schedule.split(",")] \
         if args.sliding_window_attention_schedule else None
+
     if sliding_window_attention_schedule is not None and len(sliding_window_attention_schedule) == 1:
         config.sliding_window = sliding_window_attention_schedule[0]
         accelerator.print(
