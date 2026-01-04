@@ -40,7 +40,8 @@ class LlamaDynamicYaRNScaledRotaryEmbedding(torch.nn.Module):
         self.beta_slow = beta_slow
 
         if finetuned:
-            self.yarn(self.max_position_embeddings / self.original_max_position_embeddings, device)
+            # NOTE: 与LlamaYaRNScaledRotaryEmbedding的区别在于是否使用新的max_position动态的计算scale
+            self.yarn(scale=self.max_position_embeddings / self.original_max_position_embeddings, device=device)
         else:
             inv_freq = 1.0 / \
                 (base ** (torch.arange(0, dim, 2).float().to(device) / dim))
@@ -63,7 +64,7 @@ class LlamaDynamicYaRNScaledRotaryEmbedding(torch.nn.Module):
         # This `if` block is unlikely to be run after we build sin/cos in `__init__`. Keep the logic here just in case.
         if seq_len > self.max_seq_len_cached:
             self.max_seq_len_cached = seq_len
-
+            # NOTE: 与LlamaYaRNScaledRotaryEmbedding的区别在于是否使用新的max_position动态的计算scale
             self.yarn(seq_len / self.original_max_position_embeddings, x.device)
 
             t = torch.arange(self.max_seq_len_cached, device=x.device, dtype=self.inv_freq.dtype)

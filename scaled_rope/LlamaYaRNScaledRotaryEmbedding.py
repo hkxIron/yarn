@@ -61,7 +61,9 @@ class LlamaYaRNScaledRotaryEmbedding(torch.nn.Module):
         # postion_idx: [max_seq_len]
         position_idx = torch.arange(self.max_seq_len_cached, device=self.inv_freq.device, dtype=self.inv_freq.dtype)
         # freqs: [max_seq_len, head_dim//2]
-        freqs = torch.einsum("i,j->ij", position_idx, self.inv_freq)
+        # inv_freqs: [dim//2]
+        #freqs = torch.einsum("i,j->ij", position_idx, self.inv_freq)
+        freqs = position_idx[:, None] @ self.inv_freq[None, :]
         # Different from paper, but it uses a different permutation in order to obtain the same calculation
         emb = torch.cat((freqs, freqs), dim=-1)
         dtype = torch.get_default_dtype()
@@ -76,8 +78,9 @@ class LlamaYaRNScaledRotaryEmbedding(torch.nn.Module):
             # 超出了max_seq_len_cached, 需要重新计算cos和sin
             self.max_seq_len_cached = seq_len
 
-            t = torch.arange(self.max_seq_len_cached, device=x.device, dtype=self.inv_freq.dtype)
-            freqs = torch.einsum("i,j->ij", t, self.inv_freq)
+            position = torch.arange(self.max_seq_len_cached, device=x.device, dtype=self.inv_freq.dtype)
+            #freqs = torch.einsum("i,j->ij", position, self.inv_freq)
+            freqs = position[:,None] @ self.inv_freq[None, :]
             # Different from paper, but it uses a different permutation in order to obtain the same calculation
             emb = torch.cat((freqs, freqs), dim=-1).to(x.device)
 
@@ -99,17 +102,17 @@ class LlamaYaRNScaledRotaryEmbedding(torch.nn.Module):
         # 内插，inv_freq_interpolation，即为theta_d: base^(-2i/D),内插, 将缩小theta_d, 减缓旋转的角度为以前的1/scale
         inv_freq_interpolation = 1.0 / (self.scale * pos_freqs)
 
-        alpah_freq_low, beta_freq_high = find_correction_range(self.beta_fast,  # 32
-                                          self.beta_slow, 
-                                          self.dim, 
-                                          self.base, 
-                                          self.original_max_position_embeddings)
+        alpha_freq_low, beta_freq_high = find_correction_range(self.beta_fast,  # 32
+                                                               self.beta_slow,
+                                                               self.dim,
+                                                               self.base,
+                                                               self.original_max_position_embeddings)
         # 中间部分，高频外推，低频内插
         # r(d): 训练⻓长度内旋转的周期个数, r(i)=L/(2*pi*base^(2i/d))=L/(2*pi)*base^(-2i/d)
         # gamma_rd: 
-        gamma_rd = linear_ramp_mask(alpah_freq_low, beta_freq_high, self.dim // 2).float().to(device)
+        gamma_rd = linear_ramp_mask(alpha_freq_low, beta_freq_high, self.dim // 2).float().to(device)
 
-        # NOTE:这里就人是 除以factor?
+        # NOTE:这里就是 除以factor?
         inv_freq_mask = (1 - gamma_rd) * self.extrapolation_factor # Get n-d rotational scaling corrected for extrapolation
         # 内插 + 外推
         """
